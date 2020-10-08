@@ -1,12 +1,19 @@
-import numpy as np
-import torch
-import gym
+import os.path
+import sys
+
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+
 import argparse
 import os
 
-from buffer.FAIreplaybuffer import PrioritizeBuffer
+import gym
+import pybullet_envs
+import numpy as np
+import torch
+
 from agent.DDPG_FAIM import DDPG
 from agent.TD3_FAIM import TD3
+from buffer.FAIreplaybuffer import PrioritizeBuffer
 
 
 # Runs policy for X episodes and returns average reward
@@ -33,7 +40,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--policy_name", default="DDPG")  # Policy name
     parser.add_argument(
-        "--env_name", default="Pendulum-v0"
+        "--env_name", default="HumanoidBulletEnv-v0"
     )  # OpenAI gym environment name HalfCheetah-v2, Pendulum-v0, "RoboschoolHalfCheetah-v1"
     parser.add_argument("--seed", default=0, type=int)  # Sets Gym, PyTorch and Numpy seeds
     parser.add_argument(
@@ -76,6 +83,7 @@ if __name__ == "__main__":
         os.makedirs("./pytorch_models")
 
     env = gym.make(args.env_name)
+    env.render(mode="human")
 
     # Set seeds
     env.seed(args.seed)

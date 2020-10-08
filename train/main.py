@@ -1,6 +1,12 @@
+import os.path
+import sys
+
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+
 import numpy as np
 import torch
 import gym
+import pybullet_envs
 import argparse
 import os
 
@@ -31,7 +37,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--policy_name", default="DDPG")  # Policy name
-    parser.add_argument("--env_name", default="Pendulum-v0")  # OpenAI gym environment name
+    parser.add_argument("--env_name", default="HumanoidBulletEnv-v0")  # OpenAI gym environment name
     parser.add_argument("--seed", default=0, type=int)  # Sets Gym, PyTorch and Numpy seeds
     parser.add_argument(
         "--start_timesteps", default=1e4, type=int
@@ -73,6 +79,7 @@ if __name__ == "__main__":
         os.makedirs("./pytorch_models")
 
     env = gym.make(args.env_name)
+    env.render(mode="human")
 
     # Set seeds
     env.seed(args.seed)

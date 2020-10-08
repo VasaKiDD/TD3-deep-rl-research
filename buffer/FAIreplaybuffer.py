@@ -1,13 +1,12 @@
 import numpy as np
 import torch
-import torch.nn.functional as F
 from numba import jit
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = "cpu"
 
 
-@jit(nopython=False)
+@jit
 def relativize(x):
     std = x.std()
     if float(std) == 0:
@@ -18,7 +17,7 @@ def relativize(x):
     return standard
 
 
-@jit(nopython=False)
+@jit
 def calculate_vrs(td_errors, epsilon, states, actions):
     compas_ix = np.random.permutation(np.size(td_errors))
     rewards = relativize(np.abs(td_errors) + epsilon)
