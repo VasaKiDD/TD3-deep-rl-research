@@ -3,28 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# device = "cpu"
 
-# Implementation of Deep Deterministic Policy Gradients (DDPG)
+# Re-tuned version of Deep Deterministic Policy Gradients (DDPG)
 # Paper: https://arxiv.org/abs/1509.02971
-# [Not the implementation used in the TD3 paper]
-
-
-class Actor(nn.Module):
-    def __init__(self, state_dim, action_dim, max_action):
-        super(Actor, self).__init__()
-
-        self.l1 = nn.Linear(state_dim, 400)
-        self.l2 = nn.Linear(400, 300)
-        self.l3 = nn.Linear(300, action_dim)
-
-        self.max_action = max_action
-
-    def forward(self, x):
-        x = F.relu(self.l1(x))
-        x = F.relu(self.l2(x))
-        x = self.max_action * torch.tanh(self.l3(x))
-        return x
 
 
 class Critic(nn.Module):
@@ -42,72 +23,80 @@ class Critic(nn.Module):
         return x
 
 
+class Actions(nn.Module):
+    def __init__(self, action_dim, max_action):
+        super(Actions, self).__init__()
+        self.actions = nn.Parameter(torch.zeros(1, action_dim))
+        self.max_action = max_action
+
+    def forward(self):
+        return self.max_action * F.tanh(self.actions)
+
+    def reset(self):
+        self.actions.data = self.actions.data * 0.0
+
+
 class DDPG(object):
     def __init__(self, state_dim, action_dim, max_action):
-        self.actor = Actor(state_dim, action_dim, max_action).to(device)
-        self.actor_target = Actor(state_dim, action_dim, max_action).to(device)
-        self.actor_target.load_state_dict(self.actor.state_dict())
-        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=1e-4)
+
+        self.max_action = max_action
+        self.action_dim = action_dim
+        self.actions = Actions(self.action_dim, self.max_action)
+        # self.actions_optimizer = torch.optim.Adam(self.actions.parameters())
+        self.actions_optimizer = torch.optim.SGD(self.actions.parameters(), lr=0.0, momentum=0.0)
 
         self.critic = Critic(state_dim, action_dim).to(device)
         self.critic_target = Critic(state_dim, action_dim).to(device)
         self.critic_target.load_state_dict(self.critic.state_dict())
-        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), weight_decay=1e-2)
+        self.critic_optimizer = torch.optim.Adam(self.critic.parameters())
+
+    def reset(self):
+        self.actions.reset()
+        return self.actions().cpu().data.numpy().flatten()
 
     def select_action(self, state):
         state = torch.FloatTensor(state.reshape(1, -1)).to(device)
-        return self.actor(state).cpu().data.numpy().flatten()
+        state_value = -self.critic(state, self.actions())
+        self.actions_optimizer.zero_grad()
+        state_value.backward()
+        self.actions_optimizer.step()
+        self.critic.zero_grad()
 
-    def train(self, replay_buffer, iterations, batch_size=64, discount=0.99, tau=0.001):
-        replay_buffer.init_new_memory(self.critic_target, self.actor_target, discount)
+        # print(self.actions().cpu().data.numpy().flatten())
+
+        return self.actions().cpu().data.numpy().flatten()
+
+    def train(self, replay_buffer, iterations, batch_size=100, discount=0.99, tau=0.005):
+
         for it in range(iterations):
 
             # Sample replay buffer
-            ind, w, x, y, u, r, d = replay_buffer.sample(batch_size)
+            x, y, u, v, r, d = replay_buffer.sample(batch_size)
             state = torch.FloatTensor(x).to(device)
             action = torch.FloatTensor(u).to(device)
+            new_action = torch.FloatTensor(u).to(device)
             next_state = torch.FloatTensor(y).to(device)
             done = torch.FloatTensor(1 - d).to(device)
             reward = torch.FloatTensor(r).to(device)
-            weights = torch.FloatTensor(w).to(device)
 
             # Compute the target Q value
-            target_Q = self.critic_target(next_state, self.actor_target(next_state))
+            target_Q = self.critic_target(next_state, new_action)
             target_Q = reward + (done * discount * target_Q).detach()
 
             # Get current Q estimate
             current_Q = self.critic(state, action)
 
-            # Get td errors and update buffer
-            td_errors = target_Q - current_Q
-            replay_buffer.update_samples(ind, td_errors.cpu())
-
             # Compute critic loss
-            critic_loss = (
-                weights * F.mse_loss(current_Q, target_Q, reduction="none").squeeze()
-            ).mean()
+            critic_loss = F.mse_loss(current_Q, target_Q)
 
             # Optimize the critic
             self.critic_optimizer.zero_grad()
             critic_loss.backward()
             self.critic_optimizer.step()
 
-            # Compute actor loss
-            actor_loss = -self.critic(state, self.actor(state)).mean()
-
-            # Optimize the actor
-            self.actor_optimizer.zero_grad()
-            actor_loss.backward()
-            self.actor_optimizer.step()
-
             # Update the frozen target models
             for param, target_param in zip(
                 self.critic.parameters(), self.critic_target.parameters()
-            ):
-                target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
-
-            for param, target_param in zip(
-                self.actor.parameters(), self.actor_target.parameters()
             ):
                 target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
